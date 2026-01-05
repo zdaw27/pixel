@@ -1,0 +1,54 @@
+# This .gitignore file should be placed at the root of your Unity project directory
+#
+# Get latest from https://github.com/github/gitignore/blob/main/Unity.gitignore
+#
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+
+# MemoryCaptures can get very large
+/[Mm]emoryCaptures/
+
+# Recordings can get very large
+/[Rr]ecordings/
+
+# Assets that can be regenerated
+/[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/[[Cc]onfig/[Aa]ddressable[Aa]sset[Ss]ettings.json
+/[Aa]ssets/[Aa]tlas[Bb]uilder/
+
+# Exported Visual Studio Solution
+/*.sln
+/*.csproj
+/*.dotSettings.user
+/*.user
+/*.userprefs
+/*.unityproj
+/*.booproj
+
+# Exported Android Studio project
+/[Aa]ndroid/
+
+# Built Application files
+/*.apk
+/*.aab
+/*.unitypackage
+/*.app
+
+# Crashlytics generated file
+crashlytics-build.properties
+
+# Packed Assets
+/[Aa]ssets/[Ss]treamingAssets/aa/*
+/[Aa]ssets/[Ss]treamingAssets/UnityServicesConfig.json
+
+# Temporary files created by Unity Editor
+/[Aa]ssets/*.[Tt]mp
+
+# OS generated
+.DS_Store*
+Thumbs.db
+Desktop.ini
