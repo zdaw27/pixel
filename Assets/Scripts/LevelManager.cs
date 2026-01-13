@@ -98,6 +98,14 @@ public class LevelManager : MonoBehaviour
 #endif
     }
 
+    public void TestLevel()
+    {
+        // Snapshot current state to temp level and reload it to reset physics state
+        SaveLevel("_temp_test_level");
+        LoadLevel("_temp_test_level");
+        Debug.Log("Test Level Started: Resetting simulation state...");
+    }
+
     void DrawMarker(Color[] colors, int w, int h, int cx, int cy, Color c, int size)
     {
         for (int y = cy - size; y <= cy + size; y++)
@@ -138,6 +146,9 @@ public class LevelManager : MonoBehaviour
         Vector2Int? startPos = null;
         Vector2Int? goalPos = null;
 
+        List<Vector2Int> startPixels = new List<Vector2Int>();
+        List<Vector2Int> goalPixels = new List<Vector2Int>();
+
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
@@ -147,12 +158,12 @@ public class LevelManager : MonoBehaviour
                 // Check for Markers first (approximate check for compression artifacts)
                 if (IsColorSimilar(c, COLOR_START))
                 {
-                    if (startPos == null) startPos = new Vector2Int(x, y); // First pixel found
+                    startPixels.Add(new Vector2Int(x, y));
                     continue; 
                 }
                 if (IsColorSimilar(c, COLOR_GOAL))
                 {
-                    if (goalPos == null) goalPos = new Vector2Int(x, y);
+                    goalPixels.Add(new Vector2Int(x, y));
                     continue;
                 }
 
@@ -163,6 +174,19 @@ public class LevelManager : MonoBehaviour
                     simulation.SetPixel(x, y, type);
                 }
             }
+        }
+
+        // Calculate Centroids
+        if (startPixels.Count > 0)
+        {
+            Vector2Int center = GetCentroid(startPixels);
+            startPos = center;
+        }
+
+        if (goalPixels.Count > 0)
+        {
+            Vector2Int center = GetCentroid(goalPixels);
+            goalPos = center;
         }
 
         // Setup Start/Goal
@@ -211,5 +235,21 @@ public class LevelManager : MonoBehaviour
         }
 
         return bestMatch;
+    }
+
+    Vector2Int GetCentroid(List<Vector2Int> pixels)
+    {
+        if (pixels.Count == 0) return Vector2Int.zero;
+
+        long sumX = 0;
+        long sumY = 0;
+
+        foreach (var p in pixels)
+        {
+            sumX += p.x;
+            sumY += p.y;
+        }
+
+        return new Vector2Int((int)(sumX / pixels.Count), (int)(sumY / pixels.Count));
     }
 }

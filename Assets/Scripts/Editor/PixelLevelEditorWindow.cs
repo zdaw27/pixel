@@ -83,6 +83,15 @@ public class PixelLevelEditorWindow : EditorWindow
         }
         GUILayout.EndHorizontal();
         
+        EditorGUILayout.Space();
+        GUI.backgroundColor = Color.green;
+        if (GUILayout.Button("Test Level (Reset & Play)", GUILayout.Height(30)))
+        {
+            levelManager.TestLevel();
+        }
+        GUI.backgroundColor = Color.white;
+        EditorGUILayout.Space();
+        
         if (GUILayout.Button("Clear Grid (R)"))
         {
             PixelSimulation.Instance.ClearGrid();
