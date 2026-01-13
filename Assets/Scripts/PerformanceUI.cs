@@ -31,8 +31,7 @@ public class PerformanceUI : MonoBehaviour
         
         if (simulation != null)
         {
-            text += string.Format("\n최적화(수면 모드): {0}", simulation.useChunkOptimization ? "ON" : "OFF");
-            text += string.Format("\n활성 청크: {0} / {1}", simulation.ActiveChunkCount, (simulation.width/simulation.chunkSize) * (simulation.height/simulation.chunkSize));
+            text += string.Format("\nGrid: {0}x{1}", simulation.width, simulation.height);
         }
 
         Rect rect = new Rect(0, 0, w, h);

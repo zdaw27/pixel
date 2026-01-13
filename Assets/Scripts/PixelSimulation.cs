@@ -31,12 +31,6 @@ public class PixelSimulation : MonoBehaviour
     private Pixel[,] grid;
     private float timer;
     
-    // 청크 시스템
-    public int chunkSize = 32;
-    private PixelChunk[,] chunks;
-    private int chunksX;
-    private int chunksY;
-
     public Color stoneColor = Color.gray;
     public Color sandColor = new Color(1f, 0.8f, 0.2f);
     public Color waterColor = new Color(0.2f, 0.4f, 1f);
@@ -96,33 +90,6 @@ public class PixelSimulation : MonoBehaviour
 
         grid = new Pixel[width, height];
         ClearGrid();
-        
-        InitializeChunks();
-    }
-
-    void InitializeChunks()
-    {
-        chunksX = Mathf.CeilToInt((float)width / chunkSize);
-        chunksY = Mathf.CeilToInt((float)height / chunkSize);
-        chunks = new PixelChunk[chunksX, chunksY];
-
-        GameObject chunkRoot = new GameObject("Chunks");
-        chunkRoot.transform.SetParent(transform);
-
-        for (int x = 0; x < chunksX; x++)
-        {
-            for (int y = 0; y < chunksY; y++)
-            {
-                GameObject obj = new GameObject($"Chunk_{x}_{y}");
-                obj.transform.SetParent(chunkRoot.transform);
-                // 위치는 Chunk 내부에서 로컬로 처리하거나 여기서 설정
-                // PixelChunk가 transform.position을 설정하므로 여기선 패스
-                
-                PixelChunk chunk = obj.AddComponent<PixelChunk>();
-                chunk.Initialize(x, y, chunkSize);
-                chunks[x, y] = chunk;
-            }
-        }
     }
 
     void Update()
@@ -134,9 +101,6 @@ public class PixelSimulation : MonoBehaviour
             timer = 0f;
         }
     }
-    
-    public int LastFrameChunkUpdates { get; private set; }
-    public int ActiveChunkCount { get; private set; }
 
     public void ClearGrid()
     {
@@ -153,37 +117,40 @@ public class PixelSimulation : MonoBehaviour
     {
         ClearGrid();
         
-        float surfaceNoiseScale = 0.05f;
-        float caveScale = 0.05f;
-        
+        // 0: 부드러운 언덕, 1: 슬로프, 2: 그릇(Bowl), 3: 하프 파이프
+        int mode = Random.Range(0, 4); 
+        Debug.Log($"Generating Terrain Mode: {mode}");
+
         for (int x = 0; x < width; x++)
         {
-            float noiseVal = Mathf.PerlinNoise(x * surfaceNoiseScale, 0);
-            int groundHeight = Mathf.FloorToInt(height * 0.8f + noiseVal * 10f);
+            int groundHeight = 0;
+            float normalizedX = (float)x / width; // 0 to 1
 
+            switch (mode)
+            {
+                case 0: // Smooth Hills (부드러운 언덕)
+                    float noise = Mathf.PerlinNoise(x * 0.02f, 0);
+                    groundHeight = Mathf.FloorToInt(height * 0.3f + noise * height * 0.4f);
+                    break;
+                case 1: // Slope (슬로프)
+                    groundHeight = Mathf.FloorToInt(Mathf.Lerp(height * 0.8f, height * 0.2f, normalizedX));
+                    break;
+                case 2: // Bowl (그릇 모양)
+                    float parabola = 4f * (normalizedX - 0.5f) * (normalizedX - 0.5f); // 0.5에서 0, 양끝에서 1
+                    groundHeight = Mathf.FloorToInt(height * 0.2f + parabola * height * 0.6f);
+                    break;
+                case 3: // Half-Pipe (하프 파이프 - Sine Wave)
+                     float sinWave = Mathf.Sin(normalizedX * Mathf.PI); // 0에서 0, 0.5에서 1, 1에서 0 (위로 볼록)
+                     // 아래로 볼록하게 뒤집기
+                     sinWave = 1f - sinWave;
+                     groundHeight = Mathf.FloorToInt(height * 0.3f + sinWave * height * 0.5f);
+                    break;
+            }
+
+            // 지형 채우기 (돌)
             for (int y = 0; y < groundHeight; y++)
             {
-                float caveNoise = Mathf.PerlinNoise(x * caveScale, y * caveScale);
-                if (caveNoise > 0.65f) continue; 
-
-                float depthRatio = (float)y / groundHeight;
-
-                if (depthRatio > 0.7f)
-                {
-                    SetPixel(x, y, PixelType.Sand);
-                }
-                else if (depthRatio > 0.3f)
-                {
-                    if (Random.value > 0.9f) SetPixel(x, y, PixelType.Sand);
-                    else SetPixel(x, y, PixelType.Stone);
-                }
-                else
-                {
-                    float mineralNoise = Mathf.PerlinNoise(x * 0.1f + 500, y * 0.1f + 500);
-                    
-                    if (mineralNoise > 0.6f) SetPixel(x, y, PixelType.Mineral);
-                    else SetPixel(x, y, PixelType.Stone);
-                }
+                 SetPixel(x, y, PixelType.Stone);
             }
         }
     }
@@ -214,11 +181,6 @@ public class PixelSimulation : MonoBehaviour
     {
         if (x >= 0 && x < width && y >= 0 && y < height)
         {
-            // 최적화: 고체 상태가 변할 때만 콜라이더 갱신 요청
-            PixelType oldType = grid[x, y].Type;
-            bool wasSolid = IsSolid(oldType);
-            bool isSolid = IsSolid(type);
-
             Color c = emptyColor;
             float life = 0f;
 
@@ -243,34 +205,14 @@ public class PixelSimulation : MonoBehaviour
                     break;
             }
             grid[x, y] = new Pixel { Type = type, Color = c, Updated = false, Life = life };
-            
-            WakeChunk(x, y); // 픽셀 변경 시 무조건 깨움
         }
     }
-
-    public bool useChunkOptimization = true; // 청크 최적화(수면 모드) 사용 여부
 
     void Simulate()
     {
         if (grid == null) Awake();
 
-        if (useChunkOptimization)
-        {
-            // 1. 청크 수면 상태 업데이트
-            for (int x = 0; x < chunksX; x++)
-            {
-                for (int y = 0; y < chunksY; y++)
-                {
-                    PixelChunk chunk = chunks[x, y];
-                    if (chunk == null) continue;
-
-                    if (!chunk.DidUpdate) chunk.IsSleeping = true;
-                    chunk.DidUpdate = false;
-                }
-            }
-        }
-
-        // 2. 그리드 업데이트 플래그 초기화
+        // 1. 그리드 업데이트 플래그 초기화
         for (int x = 0; x < width; x++)
         {
             for (int y = 0; y < height; y++)
@@ -279,58 +221,22 @@ public class PixelSimulation : MonoBehaviour
             }
         }
 
-        // 3. 시뮬레이션 루프
-        ActiveChunkCount = 0;
-        for (int cx = 0; cx < chunksX; cx++)
+        // 2. 시뮬레이션 루프
+        // 전체 그리드를 순회 (Bottom-up: y=0 to height)
+        for (int y = 0; y < height; y++)
         {
-            for (int cy = 0; cy < chunksY; cy++)
+            for (int x = 0; x < width; x++)
             {
-                PixelChunk chunk = chunks[cx, cy];
-                if (chunk == null) continue;
-                
-                // 최적화가 켜져있고 수면 중이면 건너뜀
-                if (useChunkOptimization && chunk.IsSleeping) continue;
-                
-                ActiveChunkCount++;
+                Pixel p = grid[x, y];
+                if (p.Updated || p.Type == PixelType.Empty) continue;
 
-                int startX = cx * chunkSize;
-                int endX = Mathf.Min((cx + 1) * chunkSize, width);
-                int startY = cy * chunkSize;
-                int endY = Mathf.Min((cy + 1) * chunkSize, height);
-
-                for (int y = startY; y < endY; y++)
-                {
-                    for (int x = startX; x < endX; x++)
-                    {
-                        Pixel p = grid[x, y];
-                        if (p.Updated || p.Type == PixelType.Empty) continue;
-
-                        if (p.Velocity.sqrMagnitude > 0.01f) UpdatePhysics(x, y);
-                        else if (p.Type == PixelType.Sand) UpdateSand(x, y);
-                        else if (p.Type == PixelType.Water) UpdateWater(x, y);
-                        else if (p.Type == PixelType.Gas) UpdateGas(x, y);
-                        else if (p.Type == PixelType.Fire) UpdateFire(x, y);
-                        else if (p.Type == PixelType.Smoke) UpdateSmoke(x, y);
-                        else if (p.Type == PixelType.Bomb) UpdateBomb(x, y);
-                    }
-                }
-            }
-        }
-    }
-
-    public void WakeChunk(int x, int y)
-    {
-        if (chunks == null) return;
-        int cx = x / chunkSize;
-        int cy = y / chunkSize;
-        
-        if (cx >= 0 && cx < chunksX && cy >= 0 && cy < chunksY)
-        {
-            PixelChunk chunk = chunks[cx, cy];
-            if (chunk != null)
-            {
-                chunk.IsSleeping = false;
-                chunk.DidUpdate = true;
+                if (p.Velocity.sqrMagnitude > 0.01f) UpdatePhysics(x, y);
+                else if (p.Type == PixelType.Sand) UpdateSand(x, y);
+                else if (p.Type == PixelType.Water) UpdateWater(x, y);
+                else if (p.Type == PixelType.Gas) UpdateGas(x, y);
+                else if (p.Type == PixelType.Fire) UpdateFire(x, y);
+                else if (p.Type == PixelType.Smoke) UpdateSmoke(x, y);
+                else if (p.Type == PixelType.Bomb) UpdateBomb(x, y);
             }
         }
     }
@@ -343,9 +249,6 @@ public class PixelSimulation : MonoBehaviour
         p.Velocity.y -= 0.5f; 
         // 공기 저항
         p.Velocity *= 0.98f;
-
-        // 상태 변화가 있으므로 청크 깨우기
-        WakeChunk(x, y);
 
         // 예상 이동 위치
         int targetX = x + Mathf.RoundToInt(p.Velocity.x);
@@ -447,8 +350,6 @@ public class PixelSimulation : MonoBehaviour
 
     void UpdateFire(int x, int y)
     {
-        WakeChunk(x, y); // 불은 계속 변함
-
         grid[x, y].Life -= 1f;
         if (grid[x, y].Life <= 0)
         {
@@ -472,8 +373,6 @@ public class PixelSimulation : MonoBehaviour
 
     void UpdateSmoke(int x, int y)
     {
-        WakeChunk(x, y); // 연기도 계속 변함
-
         grid[x, y].Life -= 1f;
         if (grid[x, y].Life <= 0)
         {
@@ -499,8 +398,6 @@ public class PixelSimulation : MonoBehaviour
 
     void UpdateBomb(int x, int y)
     {
-        WakeChunk(x, y); // 폭탄도 계속 변함
-
         // 1. 수명 감소 (심지)
         grid[x, y].Life -= 1f;
         
@@ -630,9 +527,6 @@ public class PixelSimulation : MonoBehaviour
         grid[x2, y2] = p;
         grid[x2, y2].Updated = true;
         grid[x1, y1] = new Pixel { Type = PixelType.Empty, Color = emptyColor, Updated = true };
-        
-        WakeChunk(x1, y1);
-        WakeChunk(x2, y2);
     }
 
     void SwapPixel(int x1, int y1, int x2, int y2)
@@ -643,9 +537,6 @@ public class PixelSimulation : MonoBehaviour
         grid[x2, y2] = p1;
         grid[x1, y1] = p2;
         grid[x1, y1].Updated = true; // p2가 x1,y1으로 왔음
-        
-        WakeChunk(x1, y1);
-        WakeChunk(x2, y2);
     }
 
     void MoveOrSwap(int x1, int y1, int x2, int y2)

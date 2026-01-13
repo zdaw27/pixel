@@ -13,13 +13,99 @@ public class PixelInput : MonoBehaviour
 
     private Camera mainCamera;
 
+    // --- Editor Window APIs & Marker Logic ---
+    
+    public bool isStartPointMode = false;
+    public bool isGoalPointMode = false;
+    public bool hasStartPos = false;
+    public bool hasGoalPos = false;
+    public Vector2Int startPos;
+    public Vector2Int goalPos;
+
+    // 시각적 마커 (런타임 생성)
+    private GameObject startMarker;
+    private GameObject goalMarker;
+
+    public void SetToolType(PixelType type)
+    {
+        currentType = type;
+        isStartPointMode = false;
+        isGoalPointMode = false;
+    }
+
+    public void SetToolStartPoint()
+    {
+        isStartPointMode = true;
+        isGoalPointMode = false;
+    }
+
+    public void SetToolGoalPoint()
+    {
+        isStartPointMode = false;
+        isGoalPointMode = true;
+    }
+
+    public void SetStartPos(int x, int y)
+    {
+        startPos = new Vector2Int(x, y);
+        hasStartPos = true;
+        UpdateMarker(ref startMarker, x, y, Color.green, "StartMarker");
+    }
+
+    public void SetGoalPos(int x, int y)
+    {
+        goalPos = new Vector2Int(x, y);
+        hasGoalPos = true;
+        UpdateMarker(ref goalMarker, x, y, Color.magenta, "GoalMarker");
+    }
+
+    void UpdateMarker(ref GameObject marker, int gx, int gy, Color color, string name)
+    {
+        if (marker == null)
+        {
+            marker = new GameObject(name);
+            SpriteRenderer sr = marker.AddComponent<SpriteRenderer>();
+            sr.sprite = CreateCircleSprite(color);
+            sr.sortingOrder = 20; // 맨 위
+            marker.transform.localScale = Vector3.one * 0.5f;
+        }
+        
+        float ppu = 100f;
+        float worldWidth = simulation.width / ppu;
+        float worldHeight = simulation.height / ppu;
+        float startX = -worldWidth / 2f;
+        float startY = -worldHeight / 2f;
+
+        Vector3 pos = new Vector3(startX + (gx / ppu), startY + (gy / ppu), 0);
+        marker.transform.position = pos;
+    }
+
+    Sprite CreateCircleSprite(Color c)
+    {
+        Texture2D tex = new Texture2D(32, 32);
+        tex.filterMode = FilterMode.Point;
+        Color[] colors = new Color[32 * 32];
+        Vector2 center = new Vector2(16, 16);
+        for(int y=0; y<32; y++)
+        {
+            for(int x=0; x<32; x++)
+            {
+                if(Vector2.Distance(new Vector2(x,y), center) < 14) colors[y*32+x] = c;
+                else colors[y*32+x] = Color.clear;
+            }
+        }
+        tex.SetPixels(colors);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0,0,32,32), new Vector2(0.5f, 0.5f), 100f);
+    }
+
     void Start()
     {
         if (simulation == null)
             simulation = GetComponent<PixelSimulation>();
         mainCamera = Camera.main;
         
-        // 드릴 컨트롤러 찾기 (없으면 씬에서 찾기)
+        // 드릴 컨트롤러 찾기
         if (drillController == null)
             drillController = FindObjectOfType<DrillController>();
     }
@@ -27,13 +113,13 @@ public class PixelInput : MonoBehaviour
     void Update()
     {
         HandleInput();
-        HandleSelection();
+        // HandleSelection(); // 키보드 단축키는 에디터 윈도우 사용 시 충돌 방지를 위해 선택적 해제 또는 유지
     }
 
     void HandleInput()
     {
         Vector3 worldPos = mainCamera.ScreenToWorldPoint(Input.mousePosition);
-        worldPos.z = 0; // Z축 고정
+        worldPos.z = 0; 
         
         Vector3 localPos = transform.InverseTransformPoint(worldPos);
         
@@ -47,34 +133,31 @@ public class PixelInput : MonoBehaviour
         int gridX = Mathf.FloorToInt(x * ppu);
         int gridY = Mathf.FloorToInt(y * ppu);
 
-        if (Input.GetMouseButtonDown(0)) // 좌클릭: 그리기 또는 투척
+        if (Input.GetMouseButton(0))
         {
-            if (currentType == PixelType.Bomb) // 8번(Bomb)이 투척 모드
+            if (isStartPointMode)
+            {
+                SetStartPos(gridX, gridY);
+            }
+            else if (isGoalPointMode)
+            {
+                SetGoalPos(gridX, gridY);
+            }
+            else if (currentType != PixelType.Bomb) // 일반 브러쉬
+            {
+                DrawBrush(gridX, gridY, currentType);
+            }
+        }
+        else if (Input.GetMouseButtonDown(0)) // 클릭 (폭탄 등)
+        {
+            if (!isStartPointMode && !isGoalPointMode && currentType == PixelType.Bomb)
             {
                 ThrowObject(worldPos);
-            }
-            else
-            {
-                DrawBrush(gridX, gridY, currentType);
-            }
-            
-            if (drillController != null) drillController.SetDrilling(false);
-        }
-        else if (Input.GetMouseButton(0)) // 드래그: 그리기 (투척 제외)
-        {
-            if (currentType != PixelType.Bomb)
-            {
-                DrawBrush(gridX, gridY, currentType);
             }
         }
         else if (Input.GetMouseButton(1)) // 우클릭: 드릴
         {
             Drill(gridX, gridY);
-            if (drillController != null) drillController.SetDrilling(true);
-        }
-        else
-        {
-            if (drillController != null) drillController.SetDrilling(false);
         }
     }
 
@@ -92,9 +175,9 @@ public class PixelInput : MonoBehaviour
         Rigidbody2D rb = obj.GetComponent<Rigidbody2D>();
         if (rb != null)
         {
-            Vector2 throwDir = new Vector2(Random.Range(-0.2f, 0.2f), 0f).normalized; // 거의 제자리 낙하
-            rb.linearVelocity = Vector2.zero; // 초기 속도 0
-            rb.angularVelocity = Random.Range(-90f, 90f); // 약간의 회전
+            Vector2 throwDir = new Vector2(Random.Range(-0.2f, 0.2f), 0f).normalized; 
+            rb.linearVelocity = Vector2.zero;
+            rb.angularVelocity = Random.Range(-90f, 90f);
         }
     }
 
@@ -133,38 +216,5 @@ public class PixelInput : MonoBehaviour
                 }
             }
         }
-    }
-
-    void HandleSelection()
-    {
-        if (Input.GetKeyDown(KeyCode.Alpha1)) currentType = PixelType.Sand;
-        if (Input.GetKeyDown(KeyCode.Alpha2)) currentType = PixelType.Water;
-        if (Input.GetKeyDown(KeyCode.Alpha3)) currentType = PixelType.Stone;
-        if (Input.GetKeyDown(KeyCode.Alpha4)) currentType = PixelType.Mineral;
-        if (Input.GetKeyDown(KeyCode.Alpha5)) currentType = PixelType.Empty;
-        if (Input.GetKeyDown(KeyCode.Alpha6)) currentType = PixelType.Gas;
-        if (Input.GetKeyDown(KeyCode.Alpha7)) currentType = PixelType.Fire;
-        if (Input.GetKeyDown(KeyCode.Alpha8)) currentType = PixelType.Bomb;
-
-        if (Input.GetKeyDown(KeyCode.Tab))
-        {
-            currentPrefabIndex = (currentPrefabIndex + 1) % throwPrefabs.Count;
-        }
-    }
-    
-    void OnGUI()
-    {
-        GUILayout.BeginArea(new Rect(10, 10, 300, 250));
-        GUILayout.Label("Left Click: Draw / Right Click: Drill");
-        GUILayout.Label("Current Element: " + currentType);
-        GUILayout.Label("1:Sand 2:Water 3:Stone 4:Mineral 5:Erase");
-        GUILayout.Label("6:Gas 7:Fire 8:Throw Object");
-        
-        if (currentType == PixelType.Bomb && throwPrefabs.Count > 0)
-        {
-            string prefabName = throwPrefabs[currentPrefabIndex].name;
-            GUILayout.Label($"Selected Object (Tab): {prefabName}");
-        }
-        GUILayout.EndArea();
     }
 }

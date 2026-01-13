@@ -13,7 +13,6 @@ public class PixelSceneSetup : MonoBehaviour
         if (pixelInput == null) pixelInput = FindObjectOfType<PixelInput>();
 
         SetupScene(); // 씬 기본 설정을 런타임에도 보장
-        SetupScene(); // 씬 기본 설정을 런타임에도 보장
         SetupTestObjects(); // 테스트 오브젝트 설정
 
         if (simulation != null)
@@ -67,6 +66,10 @@ public class PixelSceneSetup : MonoBehaviour
 
         PixelInput input = simObj.GetComponent<PixelInput>();
         if (input == null) input = simObj.AddComponent<PixelInput>();
+        
+        // LevelManager 추가
+        LevelManager lvlMgr = simObj.GetComponent<LevelManager>();
+        if (lvlMgr == null) lvlMgr = simObj.AddComponent<LevelManager>();
 
         // 4. 의존성 연결
         rend.simulation = sim;
@@ -115,9 +118,6 @@ public class PixelSceneSetup : MonoBehaviour
         drillUnit.simulation = sim;
         drillUnit.visualTransform = visualObj.transform;
         
-        drillObj.transform.position = new Vector3(0, 1f, 0);
-        drillObj.transform.localScale = new Vector3(0.5f, 0.5f, 1f);
-        
         if (simObj.GetComponent<PixelSceneSetup>() == null)
         {
             simObj.AddComponent<PixelSceneSetup>();
@@ -143,29 +143,22 @@ public class PixelSceneSetup : MonoBehaviour
         if (pixelInput == null) return;
         pixelInput.throwPrefabs.Clear();
 
-        // 1. 다이너마이트 (기존)
-        SetupDynamite();
-
-        // 2. 박스 (Box) - 시각적으론 박스지만 물리적으론 원형
-        GameObject box = CreateTestObject("Box", Color.white, 0.2f, 0.2f);
-        box.AddComponent<CircleCollider2D>().radius = 0.1f;
-        pixelInput.throwPrefabs.Add(box);
-
-        // 3. 공 (Ball) - 완벽하게 구르는 공
-        GameObject ball = CreateTestObject("Ball", Color.yellow, 0.2f, 0.2f);
-        ball.AddComponent<CircleCollider2D>().radius = 0.1f;
+        // 오직 공(Ball)만 생성
+        GameObject ball = CreateTestObject("Ball", Color.yellow, 0.24f, 0.24f); 
+        ball.AddComponent<CircleCollider2D>().radius = 0.12f;
+        
         PixelPhysicsObject ppo = ball.GetComponent<PixelPhysicsObject>();
         if (ppo != null)
         {
-            ppo.bounceFactor = 0.7f; // 더 잘 튀게
-            ppo.friction = 0.2f;     // 더 잘 구르게
+            ppo.bounceFactor = 0.6f; 
+            ppo.friction = 0.1f;     
+            ppo.pointsPerUnit = 24;  
         }
-        pixelInput.throwPrefabs.Add(ball);
+        
+        Rigidbody2D rb = ball.GetComponent<Rigidbody2D>();
+        if (rb != null) rb.mass = 2f; 
 
-        // 4. 캡슐 (Capsule) - 시각적으론 캡슐이지만 물리적으론 원형
-        GameObject capsule = CreateTestObject("Capsule", Color.green, 0.15f, 0.3f);
-        capsule.AddComponent<CircleCollider2D>().radius = 0.1f;
-        pixelInput.throwPrefabs.Add(capsule);
+        pixelInput.throwPrefabs.Add(ball);
     }
 
     GameObject CreateTestObject(string name, Color color, float width, float height)
@@ -173,7 +166,6 @@ public class PixelSceneSetup : MonoBehaviour
         GameObject obj = new GameObject(name);
         obj.transform.position = new Vector3(-100, -100, 0);
         
-        // 텍스처 생성
         int w = Mathf.CeilToInt(width * 100);
         int h = Mathf.CeilToInt(height * 100);
         Texture2D tex = new Texture2D(w, h);
@@ -181,7 +173,6 @@ public class PixelSceneSetup : MonoBehaviour
         Color[] colors = new Color[w * h];
         for (int i = 0; i < colors.Length; i++) colors[i] = color;
         
-        // 원형/캡슐 모양 깎기 (간단히)
         if (name == "Circle" || name == "Ball")
         {
             Vector2 center = new Vector2(w/2f, h/2f);
@@ -203,7 +194,6 @@ public class PixelSceneSetup : MonoBehaviour
         Rigidbody2D rb = obj.AddComponent<Rigidbody2D>();
         rb.mass = 1f;
         
-        // 커스텀 물리 컴포넌트 추가 (지형 충돌용)
         PixelPhysicsObject ppo = obj.AddComponent<PixelPhysicsObject>();
         ppo.bounceFactor = 0.4f;
         ppo.friction = 0.4f;
@@ -212,50 +202,73 @@ public class PixelSceneSetup : MonoBehaviour
         return obj;
     }
 
-    void SetupDynamite()
+    // --- Level Loader Support ---
+
+    public void SpawnBallAt(int gx, int gy)
     {
-        // 다이너마이트 스프라이트 생성
-        Texture2D texture = new Texture2D(8, 20);
-        texture.filterMode = FilterMode.Point;
-        Color[] colors = new Color[8 * 20];
-        for (int i = 0; i < colors.Length; i++) colors[i] = new Color(0.8f, 0.2f, 0.2f); // 빨간색
-        // 심지 부분
-        for(int y=18; y<20; y++) {
-            for(int x=3; x<5; x++) {
-                colors[y*8 + x] = Color.white;
+        // 기존 공 제거
+        if (pixelInput != null && pixelInput.throwPrefabs.Count > 0)
+        {
+            var ballObj = GameObject.Find("Ball_Player");
+            if (ballObj != null) Destroy(ballObj);
+
+            // 공 생성
+            if (pixelInput.throwPrefabs.Count > 0)
+            {
+                GameObject prefab = pixelInput.throwPrefabs[0]; 
+                GameObject newBall = Instantiate(prefab);
+                newBall.name = "Ball_Player";
+                newBall.SetActive(true);
+                
+                Vector3 pos = GridToWorld(gx, gy);
+                newBall.transform.position = pos;
             }
         }
-        texture.SetPixels(colors);
-        texture.Apply();
+    }
 
-        Sprite dynamiteSprite = Sprite.Create(texture, new Rect(0, 0, 8, 20), new Vector2(0.5f, 0.5f), 100f);
+    public void SpawnGoalAt(int gx, int gy)
+    {
+        var existingGoal = GameObject.Find("Goal_Object");
+        if (existingGoal != null) Destroy(existingGoal);
 
-        // 다이너마이트 프리팹 생성
-        dynamitePrefab = new GameObject("Dynamite");
-        dynamitePrefab.transform.position = new Vector3(-100, -100, 0);
-        
-        SpriteRenderer sr = dynamitePrefab.AddComponent<SpriteRenderer>();
-        sr.sprite = dynamiteSprite;
-        sr.sortingOrder = 10;
+        GameObject goal = new GameObject("Goal_Object");
+        Vector3 pos = GridToWorld(gx, gy);
+        goal.transform.position = pos;
 
-        Rigidbody2D rb = dynamitePrefab.AddComponent<Rigidbody2D>();
-        rb.mass = 1f;
-        rb.linearDamping = 0.5f;
-        rb.angularDamping = 0.5f;
+        // 깃발 스프라이트 생성
+        SpriteRenderer sr = goal.AddComponent<SpriteRenderer>();
+        sr.sprite = CreateGoalSprite();
+        sr.sortingOrder = 15;
+    }
 
-        CircleCollider2D col = dynamitePrefab.AddComponent<CircleCollider2D>();
-        col.radius = 0.08f;
-        col.sharedMaterial = new PhysicsMaterial2D { bounciness = 0.4f, friction = 0.4f };
+    Vector3 GridToWorld(int gx, int gy)
+    {
+        float ppu = 100f;
+        float worldWidth = simulation.width / ppu;
+        float worldHeight = simulation.height / ppu;
+        float startX = -worldWidth / 2f;
+        float startY = -worldHeight / 2f;
 
-        dynamitePrefab.AddComponent<Dynamite>();
-        
-        // 커스텀 물리 컴포넌트 추가 (지형 충돌용)
-        PixelPhysicsObject ppo = dynamitePrefab.AddComponent<PixelPhysicsObject>();
-        ppo.bounceFactor = 0.5f;
-        ppo.friction = 0.6f;
-        
-        dynamitePrefab.SetActive(false);
-        
-        if (pixelInput != null) pixelInput.throwPrefabs.Add(dynamitePrefab);
+        return new Vector3(startX + (gx / ppu), startY + (gy / ppu), 0);
+    }
+
+    Sprite CreateGoalSprite()
+    {
+        // 간단한 깃발 모양 (Magenta)
+        Texture2D tex = new Texture2D(16, 32);
+        tex.filterMode = FilterMode.Point;
+        Color[] colors = new Color[16 * 32];
+        for(int y=0; y<32; y++)
+        {
+            for(int x=0; x<16; x++)
+            {
+                if (x < 2) colors[y*16+x] = Color.white; // 깃대
+                else if (y > 16 && x < 12) colors[y*16+x] = Color.magenta; // 깃발
+                else colors[y*16+x] = Color.clear;
+            }
+        }
+        tex.SetPixels(colors);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0,0,16,32), new Vector2(0.5f, 0.0f), 100f);
     }
 }
