@@ -557,4 +557,39 @@ public class PixelSimulation : MonoBehaviour
         x = Mathf.FloorToInt(localX * ppu);
         y = Mathf.FloorToInt(localY * ppu);
     }
+
+    public void ScrollUp(int dy)
+    {
+        if (dy <= 0) return;
+
+        // 1. Shift existing pixels up
+        for (int y = height - 1; y >= dy; y--)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                grid[x, y] = grid[x, y - dy];
+                grid[x, y].Updated = true; // Mark as updated to ensure rendering/physics update if needed
+            }
+        }
+
+        // 2. clear bottom pixels (they will be filled by generator immediately after, but good practice)
+        for (int y = 0; y < dy; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                grid[x, y] = new Pixel { Type = PixelType.Empty, Color = emptyColor, Updated = true };
+            }
+        }
+    }
+
+    public void FillRect(int x, int y, int w, int h, PixelType type)
+    {
+        for (int j = y; j < y + h; j++)
+        {
+            for (int i = x; i < x + w; i++)
+            {
+                SetPixel(i, j, type);
+            }
+        }
+    }
 }

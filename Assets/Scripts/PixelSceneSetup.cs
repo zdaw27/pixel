@@ -17,7 +17,18 @@ public class PixelSceneSetup : MonoBehaviour
 
         if (simulation != null)
         {
-            simulation.GenerateTerrain();
+            // Infinite Mode terrain generation logic handles this now
+            // simulation.GenerateTerrain();
+            
+            if (GetComponent<InfiniteModeController>() == null)
+            {
+                gameObject.AddComponent<InfiniteModeController>();
+            }
+            
+            // Spawn Ball in Air
+            int centerX = simulation.width / 2;
+            int topY = Mathf.FloorToInt(simulation.height * 0.8f);
+            SpawnBallAt(centerX, topY);
         }
     }
 
@@ -75,48 +86,16 @@ public class PixelSceneSetup : MonoBehaviour
         rend.simulation = sim;
         input.simulation = sim;
         
-        // 5. 드릴 유닛 오브젝트 설정
+        // 5. 드릴 유닛 오브젝트 설정 (사용자 요청으로 비활성화)
         GameObject oldDrillUnit = GameObject.Find("DrillUnit");
         if (oldDrillUnit != null) DestroyImmediate(oldDrillUnit);
         
+        // DrillUnit 생성 코드 제거 또는 비활성화 처리
+        /*
         GameObject drillObj = new GameObject("DrillUnit");
-        
-        GameObject visualObj = new GameObject("Visual");
-        visualObj.transform.SetParent(drillObj.transform);
-        visualObj.transform.localPosition = Vector3.zero;
-            
-        int texSize = 32;
-        Texture2D tex = new Texture2D(texSize, texSize);
-        tex.filterMode = FilterMode.Point;
-        Color[] colors = new Color[texSize * texSize];
-        Vector2 center = new Vector2(texSize / 2f, texSize / 2f);
-        float radius = texSize / 2f - 1;
-
-        for (int y = 0; y < texSize; y++)
-        {
-            for (int x = 0; x < texSize; x++)
-            {
-                if (Vector2.Distance(new Vector2(x, y), center) <= radius)
-                {
-                    colors[y * texSize + x] = new Color(1f, 0.8f, 0.2f);
-                }
-                else
-                {
-                    colors[y * texSize + x] = Color.clear;
-                }
-            }
-        }
-        tex.SetPixels(colors);
-        tex.Apply();
-
-        SpriteRenderer sr = visualObj.AddComponent<SpriteRenderer>();
-        Sprite sprite = Sprite.Create(tex, new Rect(0, 0, texSize, texSize), new Vector2(0.5f, 0.5f), 100f);
-        sr.sprite = sprite;
-        sr.sortingOrder = 10;
-        
-        DrillUnit drillUnit = drillObj.AddComponent<DrillUnit>();
-        drillUnit.simulation = sim;
+        // ... (Drill Creation Code Omitted) ...
         drillUnit.visualTransform = visualObj.transform;
+        */
         
         if (simObj.GetComponent<PixelSceneSetup>() == null)
         {
@@ -150,8 +129,9 @@ public class PixelSceneSetup : MonoBehaviour
         PixelPhysicsObject ppo = ball.GetComponent<PixelPhysicsObject>();
         if (ppo != null)
         {
-            ppo.bounceFactor = 0.6f; 
-            ppo.friction = 0.1f;     
+            // More dynamic bounce
+            ppo.bounceFactor = 0.85f; // 높은 탄성
+            ppo.friction = 0.05f;     // 낮은 마찰
             ppo.pointsPerUnit = 24;  
         }
         
@@ -195,8 +175,8 @@ public class PixelSceneSetup : MonoBehaviour
         rb.mass = 1f;
         
         PixelPhysicsObject ppo = obj.AddComponent<PixelPhysicsObject>();
-        ppo.bounceFactor = 0.4f;
-        ppo.friction = 0.4f;
+        ppo.bounceFactor = 0.8f; // Default high bounce
+        ppo.friction = 0.1f;
         
         obj.SetActive(false);
         return obj;
@@ -222,6 +202,14 @@ public class PixelSceneSetup : MonoBehaviour
                 
                 Vector3 pos = GridToWorld(gx, gy);
                 newBall.transform.position = pos;
+                
+                // Add Initial Random Velocity for Dynamic Start
+                Rigidbody2D rb = newBall.GetComponent<Rigidbody2D>();
+                if (rb != null)
+                {
+                    float randomX = Random.Range(-5f, 5f);
+                    rb.linearVelocity = new Vector2(randomX, 0); 
+                }
             }
         }
     }

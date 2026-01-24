@@ -5,9 +5,9 @@ using System.Collections.Generic;
 public class PixelPhysicsObject : MonoBehaviour
 {
     [Header("Collision Settings")]
-    public int pointsPerUnit = 20; // 충돌 감지 포인트 밀도 증가
+    public int pointsPerUnit = 15; // 충돌 감지 포인트 밀도 최적화
     public float bounceFactor = 0.2f; // 튀는 정도 줄임 (덜 덜덜거리게)
-    public float friction = 0.3f; // 마찰 줄임 (잘 굴러가게)
+    public float friction = 0.1f; // 마찰 대폭 줄임 (잘 굴러가게)
     public float waterDrag = 0.9f; 
 
     [Header("Advanced Physics")]
@@ -19,6 +19,10 @@ public class PixelPhysicsObject : MonoBehaviour
     private Vector3[] checkPoints; 
     private float colliderRadius = 0.5f; // 기본값
     private bool isSleeping = false;
+
+    [Header("Destruction Settings")]
+    public bool destroyOnImpact = false;
+    public int destructionRadius = 3;
 
     void Start()
     {
@@ -83,15 +87,8 @@ public class PixelPhysicsObject : MonoBehaviour
     {
         if (PixelSimulation.Instance == null) return;
         
-        if (isSleeping)
-        {
-            if (rb.linearVelocity.sqrMagnitude > 0.1f || Mathf.Abs(rb.angularVelocity) > 10f)
-            {
-                isSleeping = false;
-                rb.simulated = true;
-            }
-            else return;
-        }
+        // Removed custom sleep check
+
 
         float dt = Time.fixedDeltaTime / subSteps;
 
@@ -118,8 +115,8 @@ public class PixelPhysicsObject : MonoBehaviour
                     Pixel p = PixelSimulation.Instance.GetGrid()[gx, gy];
                     if (PixelSimulation.Instance.IsSolid(p.Type))
                     {
-                        // 주변 9x9 픽셀을 검사하여 부드러운 노멀 계산
-                        totalNormal += CalculateNormal(gx, gy, 9);
+                        // 주변 4x4(반지름) 픽셀을 검사하여 부드러운 노멀 계산
+                        totalNormal += CalculateNormal(gx, gy, 4);
                         // avgContactPoint += (Vector2)worldPoint;
                         hitCount++;
                     }
@@ -129,6 +126,34 @@ public class PixelPhysicsObject : MonoBehaviour
 
             if (hitCount > 0)
             {
+                if (destroyOnImpact)
+                {
+                    // 충돌 지점 주변 파괴 (위치 보정 전에 수행해야 함)
+                    foreach (Vector3 localPoint in checkPoints)
+                    {
+                        Vector3 wp = transform.TransformPoint(localPoint) + (Vector3)(rb.linearVelocity * dt);
+                        int gx, gy;
+                        PixelSimulation.Instance.WorldToGrid(wp, out gx, out gy);
+                        
+                        if (gx >= 0 && gx < PixelSimulation.Instance.width && gy >= 0 && gy < PixelSimulation.Instance.height)
+                        {
+                            Pixel p = PixelSimulation.Instance.GetGrid()[gx, gy];
+                            if (PixelSimulation.Instance.IsSolid(p.Type))
+                            {
+                                ApplyDestruction(gx, gy, destructionRadius); 
+                                
+                                // Digging Kick: Add random upward/sideways force to keep it lively
+                                if (Random.value < 0.3f)
+                                {
+                                    Vector2 kick = Random.insideUnitCircle.normalized;
+                                    kick.y = Mathf.Abs(kick.y) * 0.5f; // Bias upwards
+                                    rb.AddForce(kick * 10f, ForceMode2D.Impulse);
+                                } 
+                            }
+                        }
+                    }
+                }
+
                 Vector2 normal = (totalNormal / hitCount).normalized;
                 // avgContactPoint /= hitCount;
 
@@ -164,8 +189,34 @@ public class PixelPhysicsObject : MonoBehaviour
                     }
                 }
 
-                // 5. 위치 보정 (부드럽게 밀어내기)
-                transform.position += (Vector3)normal * skinWidth * 0.5f;
+                // 5. 위치 보정 (Iterative Depenetration) - 확실하게 밀어내기
+                int maxIterations = 4;
+                float nudgeDistance = 0.02f; // 2 pixels approx
+
+                for(int k=0; k<maxIterations; k++)
+                {
+                    // 현재 위치에서 다시 충돌 체크
+                    bool stillColliding = false;
+                    foreach (Vector3 localPoint in checkPoints)
+                    {
+                        Vector3 wp = transform.TransformPoint(localPoint);
+                        int gx, gy;
+                        PixelSimulation.Instance.WorldToGrid(wp, out gx, out gy);
+                        if (gx >= 0 && gx < PixelSimulation.Instance.width && gy >= 0 && gy < PixelSimulation.Instance.height)
+                        {
+                            if (PixelSimulation.Instance.IsSolid(PixelSimulation.Instance.GetGrid()[gx, gy].Type))
+                            {
+                                stillColliding = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!stillColliding) break;
+
+                    // 여전히 충돌 중이면 노멀 방향으로 밀어냄
+                    transform.position += (Vector3)normal * nudgeDistance;
+                }
 
                 // 6. 자연스러운 구르기 (v = r * omega -> omega = v / r)
                 // 표면의 접선 벡터
@@ -181,18 +232,51 @@ public class PixelPhysicsObject : MonoBehaviour
                 // 급격한 변화 방지 (관성 느낌)
                 rb.angularVelocity = Mathf.Lerp(rb.angularVelocity, targetAngularVel, 0.1f);
 
-                // 7. 슬립 체크
-                if (rb.linearVelocity.sqrMagnitude < (sleepThreshold * sleepThreshold) && Mathf.Abs(rb.angularVelocity) < 10f)
+                // 7. 슬립 체크 (제거됨: rb.simulated = false가 중력까지 꺼버려서 공중부양 버그 유발)
+                // 대신 속도가 매우 느리면 0으로 수렴하게 유도
+                if (rb.linearVelocity.sqrMagnitude < (sleepThreshold * sleepThreshold))
                 {
-                    rb.linearVelocity = Vector2.zero;
-                    rb.angularVelocity = 0;
-                    isSleeping = true;
-                    rb.simulated = false;
-                    break;
+                    rb.linearVelocity *= 0.5f; // 감속
+                    rb.angularVelocity *= 0.5f;
                 }
             }
 
             if (inWater) rb.linearVelocity *= (1.0f - (1.0f - waterDrag) / subSteps);
+            
+            // --- Wall / Boundary Logic (Keep inside screen interactively) ---
+            Vector2 pos = rb.position + rb.linearVelocity * dt;
+            float ppu = 100f;
+            float halfWidth = (PixelSimulation.Instance.width / ppu) * 0.5f;
+            
+            // Hard Bounce off Walls
+            if (pos.x < -halfWidth + colliderRadius)
+            {
+                pos.x = -halfWidth + colliderRadius;
+                if (rb.linearVelocity.x < 0) rb.linearVelocity = new Vector2(-rb.linearVelocity.x * 0.9f, rb.linearVelocity.y);
+            }
+            else if (pos.x > halfWidth - colliderRadius)
+            {
+                pos.x = halfWidth - colliderRadius;
+                if (rb.linearVelocity.x > 0) rb.linearVelocity = new Vector2(-rb.linearVelocity.x * 0.9f, rb.linearVelocity.y);
+            }
+        }
+    }
+    
+    void ApplyDestruction(int cx, int cy, int r)
+    {
+        for (int y = cy - r; y <= cy + r; y++)
+        {
+            for (int x = cx - r; x <= cx + r; x++)
+            {
+                 if (x >= 0 && x < PixelSimulation.Instance.width && y >= 0 && y < PixelSimulation.Instance.height)
+                 {
+                     float d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                     if (d <= r * r)
+                     {
+                         PixelSimulation.Instance.SetPixel(x, y, PixelType.Empty);
+                     }
+                 }
+            }
         }
     }
 
