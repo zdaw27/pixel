@@ -85,6 +85,52 @@ public class BladeController : MonoBehaviour
         enlargeTimeLeft = duration;
     }
 
+    
+    // Trajectory Visualization
+    private LineRenderer trajectoryLine;
+    
+    public void ShowTrajectory(Vector2 direction)
+    {
+        if (trajectoryLine == null)
+        {
+            GameObject lineObj = new GameObject("TrajectoryLine");
+            lineObj.transform.SetParent(transform, false);
+            trajectoryLine = lineObj.AddComponent<LineRenderer>();
+            trajectoryLine.startWidth = 0.1f;
+            trajectoryLine.endWidth = 0.0f; // Arrow shape
+            trajectoryLine.material = new Material(Shader.Find("Sprites/Default"));
+            trajectoryLine.startColor = Color.yellow;
+            trajectoryLine.endColor = Color.red;
+            trajectoryLine.positionCount = 2;
+            trajectoryLine.sortingOrder = 100;
+        }
+        
+        trajectoryLine.enabled = true;
+        trajectoryLine.SetPosition(0, Vector3.zero); // Local space
+        trajectoryLine.SetPosition(1, (Vector3)direction * 2f); // Length
+    }
+    
+    public void HideTrajectory()
+    {
+        if (trajectoryLine != null) trajectoryLine.enabled = false;
+    }
+    
+    public void ApplyExternalForce(Vector2 force)
+    {
+        if (rb != null)
+        {
+            rb.linearVelocity = force; // Set velocity directly for "Punch" feel or AddForce?
+            // "Give vector certain force" usually means AddForce or SetVelocity.
+            // If we want total control, SetVelocity is often cleaner for "Flicking".
+            // Let's AddForce for now, or Mix.
+            // User said "Give that vector size", implies setting it? "Joystick... releasing... give that vector size".
+            // If ball is moving, adding might be chaotic. Setting gives clear control.
+            // Let's try Setting Velocity + minimal add if user wants to curve. 
+            // Usually "Slingshot" replaces velocity.
+            rb.linearVelocity = force;
+        }
+    }
+
     void MineSurroundings(float currentDamage)
     {
         int cx, cy;
@@ -92,6 +138,9 @@ public class BladeController : MonoBehaviour
         
         int r = 24; 
         if (isEnlarged) r = 40; 
+        
+        // Optimization: Don't mine if not moving enough? Or mine always?
+        // Mine always is satisfying.
 
         for (int x = cx - r; x <= cx + r; x++)
         {
