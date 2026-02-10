@@ -46,12 +46,16 @@ public class PixelRenderer : MonoBehaviour
         }
 
         // 픽셀 데이터 복사 (Color32 사용으로 메모리 대역폭 절약)
+        // grid[x,y].Color is already Color32, so we just copy it.
+        // Unsafe code could be faster here, but let's stick to safe for now.
+        // Flattening the loop might help slightly but compiler usually handles it.
+        
         for (int y = 0; y < height; y++)
         {
             int yOffset = y * width;
             for (int x = 0; x < width; x++)
             {
-                pixelColors[yOffset + x] = (Color32)grid[x, y].Color;
+                pixelColors[yOffset + x] = grid[x, y].Color;
             }
         }
 

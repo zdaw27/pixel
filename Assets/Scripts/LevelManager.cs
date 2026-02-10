@@ -10,21 +10,25 @@ public class LevelManager : MonoBehaviour
     private PixelInput pixelInput;
     private PixelSceneSetup sceneSetup;
 
-    // Type to Color Mapping
     private Dictionary<PixelType, Color> typeToColor = new Dictionary<PixelType, Color>()
     {
         { PixelType.Empty, Color.clear },
-        { PixelType.Sand, new Color(1f, 0.8f, 0.2f) }, // Yellow
-        { PixelType.Stone, Color.gray },               // Gray
-        { PixelType.Water, new Color(0.2f, 0.4f, 1f) },// Blue
-        { PixelType.Mineral, new Color(0.8f, 0.2f, 0.8f) }, // Purple
-        { PixelType.Gas, new Color(0.6f, 1f, 0.6f) },  // Light Green
-        { PixelType.Fire, Color.red },                 // Red
-        { PixelType.Smoke, new Color(0.5f, 0.5f, 0.5f) }, // Dark Gray
-        { PixelType.Bomb, new Color(0.2f, 0.2f, 0.2f) }   // Black-ish
+        { PixelType.Sand, new Color(1f, 0.8f, 0.2f) }, 
+        { PixelType.Stone, Color.gray },               
+        { PixelType.Water, new Color(0.2f, 0.4f, 1f) },
+        { PixelType.Gas, new Color(0.6f, 1f, 0.6f) },  
+        { PixelType.Fire, Color.red },                 
+        { PixelType.Smoke, new Color(0.5f, 0.5f, 0.5f) }, 
+        { PixelType.Bomb, new Color(0.2f, 0.2f, 0.2f) },   
+        
+        { PixelType.Iron, new Color(0.8f, 0.7f, 0.6f) },
+        { PixelType.Copper, new Color(0.85f, 0.5f, 0.3f) },
+        { PixelType.Gold, new Color(1f, 0.84f, 0f) },
+        { PixelType.Emerald, new Color(0f, 0.8f, 0.4f) },
+        { PixelType.Ruby, new Color(0.9f, 0.1f, 0.2f) },
+        { PixelType.Diamond, new Color(0.4f, 0.8f, 1f) }
     };
 
-    // Special Colors for Logic
     public static readonly Color COLOR_START = Color.green;
     public static readonly Color COLOR_GOAL = Color.magenta;
 
@@ -51,7 +55,6 @@ public class LevelManager : MonoBehaviour
 
         Pixel[,] grid = simulation.GetGrid();
 
-        // 1. Grid Data
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
@@ -68,7 +71,6 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        // 2. Start Point (Green)
         if (pixelInput != null && pixelInput.hasStartPos)
         {
             int sx = pixelInput.startPos.x;
@@ -76,7 +78,6 @@ public class LevelManager : MonoBehaviour
             DrawMarker(colors, width, height, sx, sy, COLOR_START, 3);
         }
 
-        // 3. Goal Point (Magenta)
         if (pixelInput != null && pixelInput.hasGoalPos)
         {
             int gx = pixelInput.goalPos.x;
@@ -100,7 +101,6 @@ public class LevelManager : MonoBehaviour
 
     public void TestLevel()
     {
-        // Snapshot current state to temp level and reload it to reset physics state
         SaveLevel("_temp_test_level");
         LoadLevel("_temp_test_level");
         Debug.Log("Test Level Started: Resetting simulation state...");
@@ -133,11 +133,6 @@ public class LevelManager : MonoBehaviour
         Texture2D texture = new Texture2D(2, 2);
         texture.LoadImage(bytes);
 
-        if (texture.width != simulation.width || texture.height != simulation.height)
-        {
-            Debug.LogWarning("Level size mismatch! Resizing might occur or logic might break.");
-        }
-
         simulation.ClearGrid();
         Color[] colors = texture.GetPixels();
         int width = texture.width;
@@ -155,7 +150,6 @@ public class LevelManager : MonoBehaviour
             {
                 Color c = colors[y * width + x];
                 
-                // Check for Markers first (approximate check for compression artifacts)
                 if (IsColorSimilar(c, COLOR_START))
                 {
                     startPixels.Add(new Vector2Int(x, y));
@@ -167,7 +161,6 @@ public class LevelManager : MonoBehaviour
                     continue;
                 }
 
-                // Map Color to Type
                 PixelType type = GetTypeFromColor(c);
                 if (type != PixelType.Empty)
                 {
@@ -176,31 +169,20 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        // Calculate Centroids
-        if (startPixels.Count > 0)
-        {
-            Vector2Int center = GetCentroid(startPixels);
-            startPos = center;
-        }
+        if (startPixels.Count > 0) startPos = GetCentroid(startPixels);
+        if (goalPixels.Count > 0) goalPos = GetCentroid(goalPixels);
 
-        if (goalPixels.Count > 0)
-        {
-            Vector2Int center = GetCentroid(goalPixels);
-            goalPos = center;
-        }
-
-        // Setup Start/Goal
         if (pixelInput != null)
         {
             if (startPos.HasValue)
             {
                 pixelInput.SetStartPos(startPos.Value.x, startPos.Value.y);
-                sceneSetup.SpawnBallAt(startPos.Value.x, startPos.Value.y);
+                if(sceneSetup != null) sceneSetup.SpawnBallAt(startPos.Value.x, startPos.Value.y);
             }
             if (goalPos.HasValue)
             {
                 pixelInput.SetGoalPos(goalPos.Value.x, goalPos.Value.y);
-                sceneSetup.SpawnGoalAt(goalPos.Value.x, goalPos.Value.y);
+                if(sceneSetup != null) sceneSetup.SpawnGoalAt(goalPos.Value.x, goalPos.Value.y);
             }
         }
 
@@ -227,7 +209,7 @@ public class LevelManager : MonoBehaviour
             if (pair.Key == PixelType.Empty) continue;
 
             float diff = Mathf.Abs(c.r - pair.Value.r) + Mathf.Abs(c.g - pair.Value.g) + Mathf.Abs(c.b - pair.Value.b);
-            if (diff < minDiff && diff < 0.2f) // Threshold
+            if (diff < minDiff && diff < 0.2f)
             {
                 minDiff = diff;
                 bestMatch = pair.Key;

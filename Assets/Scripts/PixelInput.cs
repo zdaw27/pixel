@@ -12,8 +12,6 @@ public class PixelInput : MonoBehaviour
     private int currentPrefabIndex = 0;
 
     private Camera mainCamera;
-
-    // --- Editor Window APIs & Marker Logic ---
     
     public bool isStartPointMode = false;
     public bool isGoalPointMode = false;
@@ -22,7 +20,6 @@ public class PixelInput : MonoBehaviour
     public Vector2Int startPos;
     public Vector2Int goalPos;
 
-    // 시각적 마커 (런타임 생성)
     private GameObject startMarker;
     private GameObject goalMarker;
 
@@ -66,7 +63,7 @@ public class PixelInput : MonoBehaviour
             marker = new GameObject(name);
             SpriteRenderer sr = marker.AddComponent<SpriteRenderer>();
             sr.sprite = CreateCircleSprite(color);
-            sr.sortingOrder = 20; // 맨 위
+            sr.sortingOrder = 20; 
             marker.transform.localScale = Vector3.one * 0.5f;
         }
         
@@ -105,7 +102,6 @@ public class PixelInput : MonoBehaviour
             simulation = GetComponent<PixelSimulation>();
         mainCamera = Camera.main;
         
-        // 드릴 컨트롤러 찾기
         if (drillController == null)
             drillController = FindObjectOfType<DrillController>();
     }
@@ -113,7 +109,6 @@ public class PixelInput : MonoBehaviour
     void Update()
     {
         HandleInput();
-        // HandleSelection(); // 키보드 단축키는 에디터 윈도우 사용 시 충돌 방지를 위해 선택적 해제 또는 유지
     }
 
     void HandleInput()
@@ -143,19 +138,19 @@ public class PixelInput : MonoBehaviour
             {
                 SetGoalPos(gridX, gridY);
             }
-            else if (currentType != PixelType.Bomb) // 일반 브러쉬
+            else if (currentType != PixelType.Bomb) 
             {
                 DrawBrush(gridX, gridY, currentType);
             }
         }
-        else if (Input.GetMouseButtonDown(0)) // 클릭 (폭탄 등)
+        else if (Input.GetMouseButtonDown(0)) 
         {
             if (!isStartPointMode && !isGoalPointMode && currentType == PixelType.Bomb)
             {
                 ThrowObject(worldPos);
             }
         }
-        else if (Input.GetMouseButton(1)) // 우클릭: 드릴
+        else if (Input.GetMouseButton(1)) 
         {
             Drill(gridX, gridY);
         }
@@ -203,12 +198,11 @@ public class PixelInput : MonoBehaviour
             {
                 if (Vector2.Distance(new Vector2(cx, cy), new Vector2(x, y)) <= brushSize)
                 {
-                    // 현재 픽셀 확인
                     if (x >= 0 && x < simulation.width && y >= 0 && y < simulation.height)
                     {
                         Pixel p = simulation.GetGrid()[x, y];
-                        // 고체(모래, 돌, 광물)만 파괴, 물은 유지
-                        if (p.Type == PixelType.Sand || p.Type == PixelType.Stone || p.Type == PixelType.Mineral)
+                        // Removed Mineral Explicit Check, added generic IsSolid check
+                        if (p.Type == PixelType.Sand || p.Type == PixelType.Stone || simulation.IsSolid(p.Type))
                         {
                             simulation.SetPixel(x, y, PixelType.Empty);
                         }

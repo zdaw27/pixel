@@ -3,7 +3,8 @@ using UnityEngine;
 public class Dynamite : MonoBehaviour
 {
     public float fuseTime = 3.0f; // 심지 시간
-    public int explosionRadius = 10; // 폭발 반경
+
+    public int explosionRadius = 60; // 폭발 반경 대폭 증가 (10 -> 60)
     
     private float timer;
     private bool exploded = false;
@@ -13,6 +14,16 @@ public class Dynamite : MonoBehaviour
     {
         timer = fuseTime;
         spriteRenderer = GetComponent<SpriteRenderer>();
+
+        // TNT should have low bounce
+        PixelPhysicsObject ppo = GetComponent<PixelPhysicsObject>();
+        if(ppo != null)
+        {
+            ppo.bounceFactor = 0.05f; // Very low bounce
+            ppo.minBounceSpeed = 0f; // Allow stopping
+            ppo.maxBounceSpeed = 2f; 
+            ppo.destroyOnImpact = false; // TNT should NOT destroy on impact, only on explosion
+        }
     }
 
     void Update()

@@ -8,7 +8,12 @@ public class PixelPhysicsObject : MonoBehaviour
     public int pointsPerUnit = 15; // 충돌 감지 포인트 밀도 최적화
     public float bounceFactor = 0.2f; // 튀는 정도 줄임 (덜 덜덜거리게)
     public float friction = 0.1f; // 마찰 대폭 줄임 (잘 굴러가게)
+
     public float waterDrag = 0.9f; 
+    
+    [Header("Bounce Speed Settings")]
+    public float minBounceSpeed = 4f; // 최소 반동 속도 (멈춤 방지)
+    public float maxBounceSpeed = 6f; // 최대 반동 속도 (어지러움 방지) 
 
     [Header("Advanced Physics")]
     public int subSteps = 8; 
@@ -21,8 +26,8 @@ public class PixelPhysicsObject : MonoBehaviour
     private bool isSleeping = false;
 
     [Header("Destruction Settings")]
-    public bool destroyOnImpact = false;
-    public int destructionRadius = 3;
+    public bool destroyOnImpact = true; // Changed default to TRUE to ensure it works immediately
+    public int destructionRadius = 8; 
 
     void Start()
     {
@@ -43,8 +48,15 @@ public class PixelPhysicsObject : MonoBehaviour
 
         if (col is CircleCollider2D circle)
         {
-            float radius = circle.radius;
+            float radius = circle.radius * 0.9f; 
             colliderRadius = radius;
+            
+            // Auto-calculate destruction radius based on size
+            if (destroyOnImpact)
+            {
+                destructionRadius = Mathf.CeilToInt(circle.radius * 100f * 1.1f); 
+            }
+
             Vector2 offset = circle.offset;
             int count = Mathf.Max(16, Mathf.CeilToInt(2 * Mathf.PI * radius * pointsPerUnit));
             
@@ -57,8 +69,16 @@ public class PixelPhysicsObject : MonoBehaviour
         }
         else if (col is BoxCollider2D box)
         {
-            Vector2 size = box.size;
-            colliderRadius = Mathf.Min(size.x, size.y) * 0.5f; // 대략적인 반지름
+            Vector2 size = box.size * 0.9f; 
+            colliderRadius = Mathf.Min(size.x, size.y) * 0.5f; 
+            
+            // Auto-calculate for Box as well
+            if (destroyOnImpact)
+            {
+                float maxDim = Mathf.Max(box.size.x, box.size.y);
+                destructionRadius = Mathf.CeilToInt((maxDim * 0.5f) * 100f * 1.1f);
+            }
+
             Vector2 offset = box.offset;
             float halfW = size.x / 2f;
             float halfH = size.y / 2f;
@@ -87,26 +107,23 @@ public class PixelPhysicsObject : MonoBehaviour
     {
         if (PixelSimulation.Instance == null) return;
         
-        // Removed custom sleep check
-
-
         float dt = Time.fixedDeltaTime / subSteps;
 
         for (int s = 0; s < subSteps; s++)
         {
-            // 1. 예측 위치 계산
+            // 1. Predict
             Vector2 currentPos = transform.position;
             Vector2 nextPos = currentPos + rb.linearVelocity * dt;
             
             Vector2 totalNormal = Vector2.zero;
             int hitCount = 0;
             bool inWater = false;
-            // Vector2 avgContactPoint = Vector2.zero; // Unused
 
-            // 2. 충돌 감지
+            // 2. Collision Check (Reactive: Check current overlap)
             foreach (Vector3 localPoint in checkPoints)
             {
-                Vector3 worldPoint = transform.TransformPoint(localPoint) + (Vector3)(rb.linearVelocity * dt);
+                // Removed predictive term (+ amt) to prevent air-bouncing
+                Vector3 worldPoint = transform.TransformPoint(localPoint); 
                 int gx, gy;
                 PixelSimulation.Instance.WorldToGrid(worldPoint, out gx, out gy);
 
@@ -115,9 +132,7 @@ public class PixelPhysicsObject : MonoBehaviour
                     Pixel p = PixelSimulation.Instance.GetGrid()[gx, gy];
                     if (PixelSimulation.Instance.IsSolid(p.Type))
                     {
-                        // 주변 4x4(반지름) 픽셀을 검사하여 부드러운 노멀 계산
                         totalNormal += CalculateNormal(gx, gy, 4);
-                        // avgContactPoint += (Vector2)worldPoint;
                         hitCount++;
                     }
                     else if (p.Type == PixelType.Water) inWater = true;
@@ -128,7 +143,7 @@ public class PixelPhysicsObject : MonoBehaviour
             {
                 if (destroyOnImpact)
                 {
-                    // 충돌 지점 주변 파괴 (위치 보정 전에 수행해야 함)
+                    bool excavated = false;
                     foreach (Vector3 localPoint in checkPoints)
                     {
                         Vector3 wp = transform.TransformPoint(localPoint) + (Vector3)(rb.linearVelocity * dt);
@@ -140,62 +155,43 @@ public class PixelPhysicsObject : MonoBehaviour
                             Pixel p = PixelSimulation.Instance.GetGrid()[gx, gy];
                             if (PixelSimulation.Instance.IsSolid(p.Type))
                             {
-                                ApplyDestruction(gx, gy, destructionRadius); 
+                                if (ApplyDestruction(gx, gy, destructionRadius))
+                                {
+                                    excavated = true;
+                                }
                                 
-                                // Digging Kick: Add random upward/sideways force to keep it lively
-                                if (Random.value < 0.3f)
+                                if (Random.value < 0.3f && !excavated) // Only kick if NOT penetrating
                                 {
                                     Vector2 kick = Random.insideUnitCircle.normalized;
-                                    kick.y = Mathf.Abs(kick.y) * 0.5f; // Bias upwards
+                                    kick.y = Mathf.Abs(kick.y) * 0.5f; 
                                     rb.AddForce(kick * 10f, ForceMode2D.Impulse);
                                 } 
                             }
                         }
                     }
+
+                    // Removed "Plow through" logic as per user request.
+                    // Now it will destroy pixels AND then proceed to Bounce logic below.
                 }
 
                 Vector2 normal = (totalNormal / hitCount).normalized;
-                // avgContactPoint /= hitCount;
-
                 if (normal == Vector2.zero) normal = Vector2.up;
 
-                // 3. 임펄스 계산
+                // 3. Bounce Logic
                 Vector2 relativeVel = rb.linearVelocity;
                 float velAlongNormal = Vector2.Dot(relativeVel, normal);
 
                 if (velAlongNormal < 0)
                 {
-                    float e = (relativeVel.magnitude < 1.0f) ? 0 : bounceFactor;
-                    float j = -(1 + e) * velAlongNormal;
-                    j /= (1.0f / rb.mass);
-
-                    Vector2 impulse = j * normal;
-                    rb.linearVelocity += impulse / rb.mass;
-
-                    // 4. 마찰 및 회전
-                    Vector2 tangent = relativeVel - (normal * Vector2.Dot(relativeVel, normal));
-                    if (tangent.sqrMagnitude > 0.0001f)
-                    {
-                        tangent.Normalize();
-                        float jt = -Vector2.Dot(relativeVel, tangent);
-                        jt /= (1.0f / rb.mass);
-
-                        float mu = friction;
-                        float maxFriction = j * mu;
-                        jt = Mathf.Clamp(jt, -maxFriction, maxFriction);
-
-                        Vector2 frictionImpulse = jt * tangent;
-                        rb.linearVelocity += frictionImpulse / rb.mass;
-                    }
+                    HandleBounce(normal);
                 }
 
-                // 5. 위치 보정 (Iterative Depenetration) - 확실하게 밀어내기
+                // 4. Depenetration
                 int maxIterations = 4;
-                float nudgeDistance = 0.02f; // 2 pixels approx
+                float nudgeDistance = 0.02f; 
 
                 for(int k=0; k<maxIterations; k++)
                 {
-                    // 현재 위치에서 다시 충돌 체크
                     bool stillColliding = false;
                     foreach (Vector3 localPoint in checkPoints)
                     {
@@ -213,71 +209,140 @@ public class PixelPhysicsObject : MonoBehaviour
                     }
 
                     if (!stillColliding) break;
-
-                    // 여전히 충돌 중이면 노멀 방향으로 밀어냄
                     transform.position += (Vector3)normal * nudgeDistance;
-                }
-
-                // 6. 자연스러운 구르기 (v = r * omega -> omega = v / r)
-                // 표면의 접선 벡터
-                Vector2 surfaceTangent = new Vector2(normal.y, -normal.x);
-                // 접선 방향 속도
-                float tangentialSpeed = Vector2.Dot(rb.linearVelocity, surfaceTangent);
-                
-                // 목표 각속도 (Degree/s)
-                // v = r * w(rad) => w(rad) = v / r
-                // w(deg) = (v / r) * Rad2Deg
-                float targetAngularVel = -(tangentialSpeed / colliderRadius) * Mathf.Rad2Deg;
-
-                // 급격한 변화 방지 (관성 느낌)
-                rb.angularVelocity = Mathf.Lerp(rb.angularVelocity, targetAngularVel, 0.1f);
-
-                // 7. 슬립 체크 (제거됨: rb.simulated = false가 중력까지 꺼버려서 공중부양 버그 유발)
-                // 대신 속도가 매우 느리면 0으로 수렴하게 유도
-                if (rb.linearVelocity.sqrMagnitude < (sleepThreshold * sleepThreshold))
-                {
-                    rb.linearVelocity *= 0.5f; // 감속
-                    rb.angularVelocity *= 0.5f;
                 }
             }
 
             if (inWater) rb.linearVelocity *= (1.0f - (1.0f - waterDrag) / subSteps);
             
-            // --- Wall / Boundary Logic (Keep inside screen interactively) ---
+            // --- Wall / Boundary Logic ---
             Vector2 pos = rb.position + rb.linearVelocity * dt;
             float ppu = 100f;
             float halfWidth = (PixelSimulation.Instance.width / ppu) * 0.5f;
             
-            // Hard Bounce off Walls
+            // Wall Bounce
             if (pos.x < -halfWidth + colliderRadius)
             {
                 pos.x = -halfWidth + colliderRadius;
-                if (rb.linearVelocity.x < 0) rb.linearVelocity = new Vector2(-rb.linearVelocity.x * 0.9f, rb.linearVelocity.y);
+                if (rb.linearVelocity.x < 0) HandleBounce(Vector2.right);
             }
             else if (pos.x > halfWidth - colliderRadius)
             {
                 pos.x = halfWidth - colliderRadius;
-                if (rb.linearVelocity.x > 0) rb.linearVelocity = new Vector2(-rb.linearVelocity.x * 0.9f, rb.linearVelocity.y);
+                if (rb.linearVelocity.x > 0) HandleBounce(Vector2.left);
             }
         }
     }
-    
-    void ApplyDestruction(int cx, int cy, int r)
+
+    // New infinite bounce logic
+    void HandleBounce(Vector2 normal)
     {
-        for (int y = cy - r; y <= cy + r; y++)
+        // Reflect velocity
+        Vector2 incomingVel = rb.linearVelocity;
+        Vector2 reflected = Vector2.Reflect(incomingVel, normal);
+
+        // Enforce Minimum Bounce Speed (Anti-Stop)
+        float currentSpeed = reflected.magnitude;
+        float targetSpeed = Mathf.Max(currentSpeed, minBounceSpeed); 
+        
+        // Clamp Maximum Speed (Anti-Dizzy)
+        targetSpeed = Mathf.Min(targetSpeed, maxBounceSpeed);
+
+        // Apply
+        rb.linearVelocity = reflected.normalized * targetSpeed;
+        
+        // Removed random torque to keep inertia feeling natural
+        // rb.angularVelocity = Random.Range(-180f, 180f);
+    }
+
+    
+    [Header("Sawblade Settings")]
+    public bool isSawblade = false;
+    public float rotationSpeed = 1000f; // Degrees per second
+
+    void Update()
+    {
+        if (isSawblade)
         {
-            for (int x = cx - r; x <= cx + r; x++)
+            // Visual Rotation only (Physics rotation might interfere with collision shapes if not circular)
+            // But since it's a sawblade, we likely want the RB to rotate if it's a circle collider
+            transform.Rotate(0, 0, -rotationSpeed * Time.deltaTime);
+        }
+    }
+
+    bool ApplyDestruction(int cx, int cy, int r)
+    {
+        bool destroyedAny = false;
+        // Increase effective radius significantly as per user request (2x)
+        int effectRadius = Mathf.CeilToInt(r * 2.5f); 
+        
+        for (int y = cy - effectRadius; y <= cy + effectRadius; y++)
+        {
+            for (int x = cx - effectRadius; x <= cx + effectRadius; x++)
             {
                  if (x >= 0 && x < PixelSimulation.Instance.width && y >= 0 && y < PixelSimulation.Instance.height)
                  {
-                     float d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
-                     if (d <= r * r)
+                     float d = Mathf.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
+                     if (d <= effectRadius)
                      {
-                         PixelSimulation.Instance.SetPixel(x, y, PixelType.Empty);
+                         if (PixelSimulation.Instance.GetGrid()[x, y].Type != PixelType.Empty)
+                         {
+                             // Damage Gradient
+                             // Center (0 to r) -> INSTANT KILL (10000 damage)
+                             // Edge (r to effectRadius) -> Gradient Damage
+                             float damage = 0f;
+
+                             if (d <= r) 
+                             {
+                                 damage = 10000f; // Force destroy
+                             }
+                             else
+                             {
+                                 float damageRatio = 1.0f - ((d - r) / (effectRadius - r));
+                                 damage = damageRatio * 200f; // Charring outside the hole
+                             }
+
+                             PixelSimulation.Instance.DamagePixel(x, y, damage);
+
+                             // Check if it was actually destroyed to count as "excavated"
+                             if (PixelSimulation.Instance.GetGrid()[x, y].Type == PixelType.Empty)
+                             {
+                                 // Only count as excavated if it was within the original collider radius
+                                 // This ensures we only penetrate if we clear the path, not just scratch the edges
+                                 if (d <= r) 
+                                 {
+                                     destroyedAny = true;
+
+                                     // SAWBLADE EFFECT: GRINDING PARTICLES
+                                     if (isSawblade && Random.value < 0.2f) // 20% chance per pixel
+                                     {
+                                         // Spawn Fire/Smoke at the destruction point
+                                         PixelType particleType = Random.value < 0.5f ? PixelType.Fire : PixelType.Smoke;
+                                         PixelSimulation.Instance.SetPixel(x, y, particleType);
+                                         
+                                         // Shoot separate particles backwards (Spark spray)
+                                         // Calculate direction from center to pixel (this is the collision normal roughly)
+                                         Vector2 dir = (new Vector2(x, y) - new Vector2(cx, cy)).normalized;
+                                         
+                                         // Spray direction is roughly tangent or reflected? 
+                                         // Let's just spray them out from the contact point + random noise
+                                         // Actually, visually "sparks" usually fly opposite to surface velocity.
+                                         // Simple approach: Shoot them away from center first
+                                         
+                                         if (PixelSimulation.Instance.GetGrid()[x, y].Type != PixelType.Empty) // If SetPixel succeeded (it might strict check?)
+                                         {
+                                              PixelSimulation.Instance.GetGrid()[x, y].Velocity = dir * Random.Range(5f, 15f);
+                                              PixelSimulation.Instance.GetGrid()[x, y].Life = Random.Range(10f, 30f); // Short life
+                                         }
+                                     }
+                                 }
+                             }
+                         }
                      }
                  }
             }
         }
+        return destroyedAny;
     }
 
     Vector2 CalculateNormal(int cx, int cy, int radius)
